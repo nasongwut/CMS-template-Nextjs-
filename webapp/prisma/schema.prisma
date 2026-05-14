@@ -1,0 +1,309 @@
+// Prisma schema — User membership + File storage metadata
+// Docs: https://pris.ly/d/prisma-schema
+//
+// PostgreSQL is the default (works with Neon, Supabase, RDS, MySQL via change of provider).
+// DATABASE_URL is read from .env (loaded from the project root via dotenv-cli).
+// SQLite is NOT used here because it doesn't support `enum` (used for Role).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  // Pooled URL used by the running app (PgBouncer-style, on Neon contains "-pooler").
+  url       = env("DATABASE_URL")
+  // Direct URL used by `prisma migrate` (advisory locks don't work via pooler).
+  // On Neon this is the same hostname with "-pooler" removed.
+  directUrl = env("DIRECT_URL")
+}
+
+enum Role {
+  ADMIN
+  USER
+  GUEST
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  role         Role     @default(USER)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  files     File[]
+  folders   Folder[]
+  pageViews PageView[]
+
+  @@index([role])
+}
+
+model Folder {
+  id        String   @id @default(cuid())
+  name      String
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  files     File[]
+  createdAt DateTime @default(now())
+
+  @@unique([ownerId, name])
+  @@index([ownerId])
+}
+
+model File {
+  id        String   @id @default(cuid())
+  key       String   @unique // path/key in the storage backend
+  name      String // original filename
+  mimeType  String
+  size      Int
+  driver    String // "local" | "s3" — which backend stored it
+  url       String? // public URL if applicable
+  ownerId   String
+  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  folderId  String?
+  folder    Folder?  @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([ownerId])
+  @@index([folderId])
+  @@index([createdAt])
+}
+
+/// Singleton row that holds the site's branding/SEO settings.
+/// Admins edit it at /admin/configuration; the layout reads it for <title> and <meta>.
+model SiteSettings {
+  id          String   @id @default("singleton")
+  siteName    String   @default("Next.js + Storage")
+  description String   @default("A Next.js starter with role-based membership and pluggable storage.")
+  keywords    String   @default("")  // comma-separated
+  author      String   @default("")
+  updatedAt   DateTime @updatedAt
+}
+
+/// Singleton row that holds the visual theme — both light + dark palettes.
+/// Injected into <html> as CSS variables by the root layout.
+model ThemeSettings {
+  id              String   @id @default("singleton")
+  // Light palette
+  lightPrimary    String   @default("#7c3aed") // violet-600
+  lightAccent     String   @default("#ec4899") // fuchsia-500
+  lightBackground String   @default("#fafafa") // zinc-50
+  lightForeground String   @default("#18181b") // zinc-900
+  // Dark palette
+  darkPrimary     String   @default("#a78bfa") // violet-400
+  darkAccent      String   @default("#f472b6") // fuchsia-400
+  darkBackground  String   @default("#09090b") // zinc-950
+  darkForeground  String   @default("#fafafa") // zinc-50
+  updatedAt       DateTime @updatedAt
+}
+
+/// Singleton row for the public /about page.
+model AboutPage {
+  id         String   @id @default("singleton")
+  heading    String   @default("About us")
+  subheading String   @default("Built by makers, for makers.")
+  body       String   @default("") // long-form text, blank lines = paragraphs
+  /// Optional hero image URL shown on the public /about page.
+  heroImage  String?
+  /// Which preset layout to render the page with. See lib/about-layouts.ts
+  /// for the full list. Defaults to "classic".
+  layout     String   @default("classic")
+  updatedAt  DateTime @updatedAt
+}
+
+/// A grouping for articles. Surfaced on /categories and /categories/[slug].
+model Category {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  name        String
+  description String?
+  coverImage  String?
+  order       Int       @default(0)
+  isPublished Boolean   @default(true)
+  articles    Article[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([slug])
+  @@index([order])
+  @@index([isPublished])
+}
+
+/// A full long-form article rendered with one of the article layouts.
+model Article {
+  id          String    @id @default(cuid())
+  slug        String    @unique
+  title       String
+  excerpt     String?
+  body        String    @default("") // long-form, blank lines = paragraphs
+  coverImage  String?
+  /// Layout preset id — see lib/article-layouts.ts. Defaults to "classic".
+  layout      String    @default("classic")
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  isPublished Boolean   @default(true)
+  publishedAt DateTime?
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([slug])
+  @@index([categoryId])
+  @@index([isPublished])
+  @@index([publishedAt])
+  @@index([order])
+}
+
+/// One row per nav-bar item displayed in the top navigation.
+/// Admins manage these from /admin/nav.
+model NavItem {
+  id          String   @id @default(cuid())
+  label       String
+  /// "page" = static path | "category" = link to /categories/<slug> | "article" = link to /articles/<slug> | "external" = full URL
+  kind        String   @default("page")
+  /// For "page": "/about". For category/article: the slug. For external: the URL.
+  target      String
+  order       Int      @default(0)
+  /// Only show when a user is signed in.
+  requireAuth Boolean  @default(false)
+  /// Only show to admins.
+  adminOnly   Boolean  @default(false)
+  /// Open in a new tab.
+  openInNew   Boolean  @default(false)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+  @@index([isPublished])
+}
+
+/// Articles displayed on the public /about page below the body.
+model AboutArticle {
+  id          String   @id @default(cuid())
+  title       String
+  excerpt     String?
+  body        String
+  imageUrl    String?
+  isPublished Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+  @@index([isPublished])
+}
+
+/// Events shown in the vertical timeline on /about.
+model TimelineEvent {
+  id          String   @id @default(cuid())
+  /// Free-form date label — can be "2024", "Q3 2025", "Oct 2026", etc.
+  date        String
+  title       String
+  description String?
+  imageUrl    String?
+  order       Int      @default(0)
+  isPublished Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+}
+
+/// Job application submitted from the public /careers page.
+/// Files (CV, photo, portfolio) live in the storage backend; URLs are kept
+/// here for quick listing in the admin console.
+enum ApplicationStatus {
+  NEW
+  REVIEWING
+  INTERVIEW
+  HIRED
+  REJECTED
+  ARCHIVED
+}
+
+model JobApplication {
+  id              String   @id @default(cuid())
+  /// What position the candidate is applying for.
+  position        String
+  fullName        String
+  email           String
+  phone           String?
+  /// Free-form years/months of experience.
+  experience      String?
+  /// Expected salary (text so candidates can write "negotiable" etc).
+  expectedSalary  String?
+  /// Earliest available start date as free text ("immediately", "2 weeks", "1 Aug 2026").
+  availableFrom   String?
+  /// Free-form portfolio / LinkedIn / Behance / GitHub URL(s).
+  portfolioUrl    String?
+  message         String?
+  /// Photo (avatar) URL — kept separately for the admin list thumbnail.
+  photoUrl        String?
+  /// Primary CV file URL — first PDF/Doc the candidate uploaded.
+  cvUrl           String?
+  cvName          String?
+  status          ApplicationStatus @default(NEW)
+  /// IP/UA captured for spam triage (not exposed to candidates).
+  ipHash          String?
+  userAgent       String?
+  files           JobApplicationFile[]
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([position])
+}
+
+/// Additional files attached to a JobApplication (portfolio PDFs, work samples, …).
+model JobApplicationFile {
+  id            String   @id @default(cuid())
+  applicationId String
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  /// Storage key (used by lib/storage.read/delete).
+  key           String
+  name          String
+  mimeType      String
+  size          Int
+  /// "photo" | "cv" | "portfolio" | "other"
+  kind          String   @default("other")
+  url           String?
+  createdAt     DateTime @default(now())
+
+  @@index([applicationId])
+}
+
+/// One row per recorded page view. Logged by the PageTracker client component
+/// via POST /api/track/pageview. Used by the admin dashboard.
+model PageView {
+  id          String   @id @default(cuid())
+  path        String
+  referrer    String?
+  /// Hostname of the referrer (e.g. "google.com", "facebook.com") — easier to group than full URLs.
+  referrerHost String?
+  /// Classified source: "direct", "search:google", "social:facebook", "referral:x.com", etc.
+  source      String?
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  userAgent   String?
+  /// ISO-3166 alpha-2 country code from edge headers (CF-IPCountry / x-vercel-ip-country).
+  /// "XX" = unknown / local development.
+  country     String?
+  /// Hash of (ip + userAgent + day) — gives a cheap unique-visitor estimate without storing PII.
+  visitorHash String?
+  userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([path])
+  @@index([source])
+  @@index([country])
+  @@index([referrerHost])
+  @@index([visitorHash])
+}

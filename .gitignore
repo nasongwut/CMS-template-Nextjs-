@@ -1,0 +1,11 @@
+node_modules/
+.DS_Store
+*.log
+
+# Uploaded user content (lives at the project root via STORAGE_LOCAL_PATH)
+/storage/
+
+# Optional local-only overrides (gitignored)
+.env.local
+.env.development.local
+.env.production.local

@@ -1,0 +1,23 @@
+{
+  "name": "nextjs-storage-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Root project — env files (.env.development, .env.production) live here and are loaded into ./webapp for every script.",
+  "scripts": {
+    "dev": "dotenv -e .env.development -- npm --prefix webapp run next:dev",
+    "build": "dotenv -e .env.production -- npm --prefix webapp run next:build",
+    "start": "dotenv -e .env.production -- npm --prefix webapp run next:start",
+    "lint": "npm --prefix webapp run lint",
+    "install:app": "npm --prefix webapp install",
+    "postinstall": "npm --prefix webapp install",
+    "prisma:generate": "dotenv -e .env.development -- npm --prefix webapp run prisma:generate",
+    "prisma:migrate": "dotenv -e .env.development -- npm --prefix webapp run prisma:migrate",
+    "prisma:migrate:prod": "dotenv -e .env.production -- npm --prefix webapp run prisma:deploy",
+    "prisma:studio": "dotenv -e .env.development -- npm --prefix webapp run prisma:studio",
+    "db:seed": "dotenv -e .env.development -- npm --prefix webapp run db:seed",
+    "db:seed:prod": "dotenv -e .env.production -- npm --prefix webapp run db:seed"
+  },
+  "devDependencies": {
+    "dotenv-cli": "^7.4.4"
+  }
+}
