@@ -47,6 +47,17 @@ export async function POST(req: NextRequest) {
 
   const session = await getSession().catch(() => null);
 
+  // The JWT in the cookie might reference a user that has since been deleted
+  // (common in dev after re-seeding). Verify the user actually exists before
+  // attaching the FK so the insert doesn't blow up with P2003.
+  let validUserId: string | null = null;
+  if (session?.sub) {
+    const exists = await prisma.user
+      .findUnique({ where: { id: session.sub }, select: { id: true } })
+      .catch(() => null);
+    if (exists) validUserId = exists.id;
+  }
+
   try {
     await prisma.pageView.create({
       data: {
@@ -60,7 +71,7 @@ export async function POST(req: NextRequest) {
         userAgent: ua.slice(0, 512) || null,
         country,
         visitorHash: hash,
-        userId: session?.sub ?? null,
+        userId: validUserId,
       },
     });
   } catch (e) {

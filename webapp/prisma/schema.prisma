@@ -85,18 +85,24 @@ model SiteSettings {
 
 /// Singleton row that holds the visual theme — both light + dark palettes.
 /// Injected into <html> as CSS variables by the root layout.
+///
+/// Defaults are the "Plum & Coral" preset from lib/theme.ts — a refined
+/// warm palette tuned for a creative-studio surface.
 model ThemeSettings {
   id              String   @id @default("singleton")
-  // Light palette
-  lightPrimary    String   @default("#7c3aed") // violet-600
-  lightAccent     String   @default("#ec4899") // fuchsia-500
-  lightBackground String   @default("#fafafa") // zinc-50
-  lightForeground String   @default("#18181b") // zinc-900
-  // Dark palette
-  darkPrimary     String   @default("#a78bfa") // violet-400
-  darkAccent      String   @default("#f472b6") // fuchsia-400
-  darkBackground  String   @default("#09090b") // zinc-950
-  darkForeground  String   @default("#fafafa") // zinc-50
+  // Light palette — Studio defaults (warm vellum + violet ink)
+  lightPrimary    String   @default("#7e22ce") // purple-700
+  lightAccent     String   @default("#f43f5e") // rose-500
+  lightBackground String   @default("#f7f3ec") // warm vellum cream
+  lightForeground String   @default("#1c1917") // stone-900
+  // Dark palette — deep aubergine ink
+  darkPrimary     String   @default("#c084fc") // purple-400
+  darkAccent      String   @default("#fb7185") // rose-400
+  darkBackground  String   @default("#100b18") // deep aubergine ink
+  darkForeground  String   @default("#f5f3ef") // warm off-white
+  /// Site-wide design language — controls typography, radius, borders.
+  /// "studio" | "editorial" | "gallery" | "bloom" | "terminal" (see lib/theme.ts).
+  siteStyle       String   @default("studio")
   updatedAt       DateTime @updatedAt
 }
 
@@ -158,27 +164,34 @@ model Article {
 }
 
 /// One row per nav-bar item displayed in the top navigation.
-/// Admins manage these from /admin/nav.
+/// Admins manage these from /admin/nav. Supports one level of nesting
+/// (parent has `children` and renders as a dropdown).
 model NavItem {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   label       String
   /// "page" = static path | "category" = link to /categories/<slug> | "article" = link to /articles/<slug> | "external" = full URL
-  kind        String   @default("page")
+  kind        String    @default("page")
   /// For "page": "/about". For category/article: the slug. For external: the URL.
-  target      String
-  order       Int      @default(0)
+  /// May be empty for parent-only items that exist purely to host children.
+  target      String    @default("")
+  /// Parent item this row sits under. Null = top-level.
+  parentId    String?
+  parent      NavItem?  @relation("NavChildren", fields: [parentId], references: [id], onDelete: Cascade)
+  children    NavItem[] @relation("NavChildren")
+  order       Int       @default(0)
   /// Only show when a user is signed in.
-  requireAuth Boolean  @default(false)
+  requireAuth Boolean   @default(false)
   /// Only show to admins.
-  adminOnly   Boolean  @default(false)
+  adminOnly   Boolean   @default(false)
   /// Open in a new tab.
-  openInNew   Boolean  @default(false)
-  isPublished Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  openInNew   Boolean   @default(false)
+  isPublished Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   @@index([order])
   @@index([isPublished])
+  @@index([parentId])
 }
 
 /// Articles displayed on the public /about page below the body.

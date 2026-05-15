@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { AuthError, requireRole } from "@/lib/auth";
-import { getTheme, isHexColor, themeDefaults, updateTheme } from "@/lib/theme";
+import {
+  getTheme,
+  isHexColor,
+  isSiteStyle,
+  themeDefaults,
+  updateTheme,
+} from "@/lib/theme";
 
 export const runtime = "nodejs";
 
@@ -37,7 +43,7 @@ export async function PATCH(req: NextRequest) {
       return NextResponse.json({ error: "invalid_body" }, { status: 400 });
     }
 
-    const patch: Partial<Record<Field, string>> = {};
+    const patch: Partial<Record<Field, string>> & { siteStyle?: string } = {};
     for (const f of fields) {
       const v = body[f];
       if (typeof v !== "string") continue;
@@ -45,6 +51,12 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: `invalid_color:${f}` }, { status: 400 });
       }
       patch[f] = v.toLowerCase();
+    }
+    if (typeof body.siteStyle === "string") {
+      if (!isSiteStyle(body.siteStyle)) {
+        return NextResponse.json({ error: "invalid_site_style" }, { status: 400 });
+      }
+      patch.siteStyle = body.siteStyle;
     }
     if (Object.keys(patch).length === 0) {
       return NextResponse.json({ error: "no_fields_provided" }, { status: 400 });

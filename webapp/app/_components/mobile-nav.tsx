@@ -4,16 +4,84 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 interface NavLink {
+  id?: string;
   href: string;
   label: string;
   accent?: boolean;
   external?: boolean;
   openInNew?: boolean;
+  children?: NavLink[];
 }
 
 interface Props {
   links: NavLink[];
   user: { email: string; role: string } | null;
+}
+
+function MobileLink({ link, depth = 0 }: { link: NavLink; depth?: number }) {
+  const hasChildren = !!link.children && link.children.length > 0;
+  const [open, setOpen] = useState(false);
+
+  const baseClasses =
+    "block px-3 py-3 rounded-md text-base hover:bg-zinc-100 dark:hover:bg-zinc-800";
+  const accentClasses = link.accent
+    ? "text-amber-600 dark:text-amber-400 font-medium"
+    : "text-zinc-700 dark:text-zinc-300";
+  const indentStyle = depth > 0 ? { paddingLeft: 12 + depth * 16 } : undefined;
+
+  if (!hasChildren) {
+    return (
+      <Link
+        href={link.href || "#"}
+        target={link.openInNew || link.external ? "_blank" : undefined}
+        rel={link.external ? "noopener noreferrer" : undefined}
+        className={`${baseClasses} ${accentClasses}`}
+        style={indentStyle}
+      >
+        {link.label}
+      </Link>
+    );
+  }
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={`${baseClasses} ${accentClasses} w-full flex items-center justify-between`}
+        style={indentStyle}
+      >
+        <span>{link.label}</span>
+        <svg
+          viewBox="0 0 24 24"
+          className={`h-4 w-4 opacity-60 transition-transform ${open ? "rotate-180" : ""}`}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+        >
+          <path d="M6 9l6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+      {open && (
+        <div className="space-y-0.5 mt-0.5 mb-1">
+          {/* If parent has its own link, render an "overview" entry */}
+          {link.href && (
+            <Link
+              href={link.href}
+              className="block py-2.5 rounded-md text-sm text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              style={{ paddingLeft: 12 + (depth + 1) * 16 }}
+            >
+              {link.label} overview
+            </Link>
+          )}
+          {link.children!.map((c, i) => (
+            <MobileLink key={c.id ?? `${c.href}-${i}`} link={c} depth={depth + 1} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function MobileNav({ links, user }: Props) {
@@ -70,19 +138,7 @@ export default function MobileNav({ links, user }: Props) {
           <div className="fixed inset-x-0 top-[57px] bottom-0 z-40 bg-white dark:bg-zinc-950 overflow-y-auto">
             <div className="px-4 py-4 space-y-1">
               {links.map((l, i) => (
-                <Link
-                  key={`${l.href}-${i}`}
-                  href={l.href}
-                  target={l.openInNew || l.external ? "_blank" : undefined}
-                  rel={l.external ? "noopener noreferrer" : undefined}
-                  className={`block px-3 py-3 rounded-md text-base ${
-                    l.accent
-                      ? "text-amber-600 dark:text-amber-400 font-medium"
-                      : "text-zinc-700 dark:text-zinc-300"
-                  } hover:bg-zinc-100 dark:hover:bg-zinc-800`}
-                >
-                  {l.label}
-                </Link>
+                <MobileLink key={l.id ?? `${l.href}-${i}`} link={l} />
               ))}
               <div className="border-t border-zinc-200 dark:border-zinc-800 my-3" />
               {user ? (

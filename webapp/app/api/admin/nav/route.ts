@@ -31,15 +31,31 @@ export async function POST(req: NextRequest) {
     if (!label) return NextResponse.json({ error: "label_required" }, { status: 400 });
     if (label.length > 60)
       return NextResponse.json({ error: "label_too_long" }, { status: 400 });
-    if (!target) return NextResponse.json({ error: "target_required" }, { status: 400 });
 
     const kind = isNavKind(body.kind) ? body.kind : "page";
+    const parentId =
+      typeof body.parentId === "string" && body.parentId ? body.parentId : null;
 
+    // Validate parent: only top-level rows may be parents (depth limit 1).
+    if (parentId) {
+      const parent = await prisma.navItem.findUnique({ where: { id: parentId } });
+      if (!parent) {
+        return NextResponse.json({ error: "parent_not_found" }, { status: 400 });
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((parent as any).parentId) {
+        return NextResponse.json({ error: "parent_not_top_level" }, { status: 400 });
+      }
+    }
+
+    // Target may be empty *only* if this is a child of (or itself) a dropdown parent.
+    // For convenience, allow empty target on any row — the renderer just won't link it.
     const item = await prisma.navItem.create({
       data: {
         label,
         kind,
         target: target.slice(0, 500),
+        parentId,
         order: typeof body.order === "number" ? body.order : 0,
         requireAuth: typeof body.requireAuth === "boolean" ? body.requireAuth : false,
         adminOnly: typeof body.adminOnly === "boolean" ? body.adminOnly : false,

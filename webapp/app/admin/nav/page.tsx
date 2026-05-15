@@ -61,6 +61,7 @@ export default async function AdminNavPage() {
               label: i.label,
               kind: i.kind,
               target: i.target,
+              parentId: (i as { parentId?: string | null }).parentId ?? null,
               order: i.order,
               requireAuth: i.requireAuth,
               adminOnly: i.adminOnly,

@@ -1,10 +1,11 @@
 "use client";
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -25,7 +26,14 @@ export default function LoginPage() {
       setError(j.error ?? "Login failed");
       return;
     }
-    router.push("/files");
+
+    // Choose where to send the user post-login:
+    //   1. If proxy.ts redirected them here with ?from=<path>, send them back.
+    //   2. Otherwise: ADMIN → /admin, everyone else → /files.
+    const user = await res.json().catch(() => null);
+    const from = safeInternalPath(searchParams.get("from"));
+    const next = from ?? (user?.role === "ADMIN" ? "/admin" : "/files");
+    router.push(next);
     router.refresh();
   }
 
@@ -68,6 +76,14 @@ export default function LoginPage() {
       </div>
     </div>
   );
+}
+
+/** Only allow same-origin redirects (path-only, starts with single `/`). */
+function safeInternalPath(raw: string | null): string | null {
+  if (!raw) return null;
+  if (!raw.startsWith("/") || raw.startsWith("//")) return null;
+  if (raw.includes("://")) return null;
+  return raw;
 }
 
 function Field({

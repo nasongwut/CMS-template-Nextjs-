@@ -20,7 +20,146 @@
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--site-bg, var(--background));
+  color: var(--site-fg, var(--foreground));
+  font-family: var(--font-geist-sans), system-ui, -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", "Sarabun", "Noto Sans Thai", sans-serif;
+  transition: background-color 0.2s ease, color 0.2s ease;
 }
+
+/* ================================================================
+   Site-style overrides — applied via `data-style` on <body>.
+   Each pack swaps typography, border radius, border weight and
+   shadow style across the whole site so the chosen theme genuinely
+   reshapes the look, not only the colours.
+   ================================================================ */
+
+/* ---- editorial — serif journal, sharp corners, no shadows ---- */
+
+[data-style="editorial"] body,
+[data-style="editorial"] h1,
+[data-style="editorial"] h2,
+[data-style="editorial"] h3,
+[data-style="editorial"] h4,
+[data-style="editorial"] h5,
+[data-style="editorial"] h6,
+[data-style="editorial"] p,
+[data-style="editorial"] li,
+[data-style="editorial"] blockquote,
+[data-style="editorial"] dd,
+[data-style="editorial"] dt {
+  font-family: "Iowan Old Style", Georgia, "Times New Roman", "IBM Plex Serif Thai",
+    "Noto Serif Thai", serif;
+}
+[data-style="editorial"] h1,
+[data-style="editorial"] h2,
+[data-style="editorial"] h3 {
+  letter-spacing: -0.015em;
+}
+[data-style="editorial"] .rounded,
+[data-style="editorial"] .rounded-md,
+[data-style="editorial"] .rounded-lg,
+[data-style="editorial"] .rounded-xl,
+[data-style="editorial"] .rounded-2xl,
+[data-style="editorial"] .rounded-3xl {
+  border-radius: 0 !important;
+}
+[data-style="editorial"] .shadow,
+[data-style="editorial"] .shadow-sm,
+[data-style="editorial"] .shadow-md,
+[data-style="editorial"] .shadow-lg,
+[data-style="editorial"] .shadow-xl {
+  box-shadow: none !important;
+}
+
+/* ---- gallery — bold mono, 2px borders, hard offset shadows ---- */
+
+[data-style="gallery"] h1,
+[data-style="gallery"] h2,
+[data-style="gallery"] h3 {
+  font-weight: 800;
+  letter-spacing: -0.035em;
+}
+[data-style="gallery"] .rounded,
+[data-style="gallery"] .rounded-md,
+[data-style="gallery"] .rounded-lg,
+[data-style="gallery"] .rounded-xl,
+[data-style="gallery"] .rounded-2xl,
+[data-style="gallery"] .rounded-3xl {
+  border-radius: 0 !important;
+}
+[data-style="gallery"] .border,
+[data-style="gallery"] .border-2 {
+  border-width: 2px !important;
+}
+[data-style="gallery"] .shadow,
+[data-style="gallery"] .shadow-sm,
+[data-style="gallery"] .shadow-md,
+[data-style="gallery"] .shadow-lg {
+  box-shadow: 4px 4px 0 0 var(--site-fg) !important;
+}
+
+/* ---- bloom — pastel, super rounded, pill buttons ---- */
+
+[data-style="bloom"] .rounded-md {
+  border-radius: 14px !important;
+}
+[data-style="bloom"] .rounded-lg {
+  border-radius: 20px !important;
+}
+[data-style="bloom"] .rounded-xl {
+  border-radius: 28px !important;
+}
+[data-style="bloom"] .rounded-2xl,
+[data-style="bloom"] .rounded-3xl {
+  border-radius: 36px !important;
+}
+[data-style="bloom"] .shadow-sm {
+  box-shadow: 0 4px 18px -8px color-mix(in srgb, var(--site-primary) 40%, transparent) !important;
+}
+[data-style="bloom"] .shadow-md,
+[data-style="bloom"] .shadow-lg {
+  box-shadow: 0 12px 36px -16px color-mix(in srgb, var(--site-primary) 50%, transparent) !important;
+}
+
+/* ---- terminal — monospace everywhere, hard 2px corners ---- */
+
+[data-style="terminal"] body,
+[data-style="terminal"] h1,
+[data-style="terminal"] h2,
+[data-style="terminal"] h3,
+[data-style="terminal"] h4,
+[data-style="terminal"] h5,
+[data-style="terminal"] h6,
+[data-style="terminal"] p,
+[data-style="terminal"] li,
+[data-style="terminal"] span,
+[data-style="terminal"] a,
+[data-style="terminal"] input,
+[data-style="terminal"] textarea,
+[data-style="terminal"] select,
+[data-style="terminal"] button {
+  font-family: var(--font-geist-mono), ui-monospace, "IBM Plex Mono", "Fira Code",
+    "Sarabun", monospace;
+}
+[data-style="terminal"] h1,
+[data-style="terminal"] h2,
+[data-style="terminal"] h3 {
+  letter-spacing: -0.01em;
+}
+[data-style="terminal"] .rounded,
+[data-style="terminal"] .rounded-md,
+[data-style="terminal"] .rounded-lg,
+[data-style="terminal"] .rounded-xl,
+[data-style="terminal"] .rounded-2xl,
+[data-style="terminal"] .rounded-3xl {
+  border-radius: 2px !important;
+}
+[data-style="terminal"] .shadow,
+[data-style="terminal"] .shadow-sm,
+[data-style="terminal"] .shadow-md,
+[data-style="terminal"] .shadow-lg {
+  box-shadow: none !important;
+}
+
+/* ---- studio is the un-modified baseline (default look) ---- */

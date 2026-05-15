@@ -23,6 +23,7 @@ export default async function AdminThemePage() {
             darkAccent: theme.darkAccent,
             darkBackground: theme.darkBackground,
             darkForeground: theme.darkForeground,
+            siteStyle: theme.siteStyle,
           }}
           defaults={themeDefaults}
         />

@@ -463,9 +463,11 @@ const NEW_ARTICLES: Array<{
   },
 ];
 
-/** NavBar overrides — by default the layout uses built-in defaults; once
- *  these rows exist, they take over. */
-const NAV_ITEMS: Array<{
+/**
+ * NavBar overrides — top-level + nested children (dropdowns).
+ * Items are inserted in two passes so children can reference their parent id.
+ */
+interface NavSeed {
   label: string;
   kind: string;
   target: string;
@@ -473,14 +475,76 @@ const NAV_ITEMS: Array<{
   requireAuth?: boolean;
   adminOnly?: boolean;
   openInNew?: boolean;
-}> = [
-  { label: "About", kind: "page", target: "/about", order: 0 },
-  { label: "Articles", kind: "page", target: "/articles", order: 1 },
-  { label: "เบื้องหลังงาน", kind: "category", target: "behind-the-scenes", order: 2 },
-  { label: "ข่าวสตูดิโอ", kind: "category", target: "studio-updates", order: 3 },
-  { label: "Careers", kind: "page", target: "/careers", order: 4 },
-  { label: "Files", kind: "page", target: "/files", order: 5, requireAuth: true },
-  { label: "Docs", kind: "page", target: "/docs", order: 6 },
+  /** Children render as a dropdown under this top-level item. */
+  children?: Array<Omit<NavSeed, "children">>;
+}
+
+const NAV_ITEMS: NavSeed[] = [
+  { label: "Docs", kind: "page", target: "/docs", order: 0 },
+  {
+    // Dropdown parent with no own link — pure menu host.
+    label: "Services",
+    kind: "page",
+    target: "",
+    order: 1,
+    children: [
+      {
+        label: "Brand Experience",
+        kind: "article",
+        target: "brand-experience-1200-sqm",
+        order: 0,
+      },
+      {
+        label: "Sculpture & Permanent Art",
+        kind: "article",
+        target: "stainless-sculpture-process",
+        order: 1,
+      },
+      {
+        label: "Pop-up & Exhibition",
+        kind: "article",
+        target: "popup-narrative-first",
+        order: 2,
+      },
+      {
+        label: "Stage Design",
+        kind: "article",
+        target: "festival-stage-design-lessons",
+        order: 3,
+      },
+      {
+        label: "Sustainable Design",
+        kind: "article",
+        target: "sustainable-event-design",
+        order: 4,
+      },
+    ],
+  },
+  {
+    label: "Articles",
+    kind: "page",
+    target: "/articles",
+    order: 2,
+    children: [
+      {
+        label: "เบื้องหลังงาน",
+        kind: "category",
+        target: "behind-the-scenes",
+        order: 0,
+      },
+      {
+        label: "บันทึกการออกแบบ",
+        kind: "category",
+        target: "design-notes",
+        order: 1,
+      },
+      { label: "ข่าวสตูดิโอ", kind: "category", target: "studio-updates", order: 2 },
+      { label: "กระบวนการทำงาน", kind: "category", target: "process", order: 3 },
+      { label: "แรงบันดาลใจ", kind: "category", target: "inspiration", order: 4 },
+    ],
+  },
+  { label: "Careers", kind: "page", target: "/careers", order: 3 },
+  { label: "About", kind: "page", target: "/about", order: 4 },
 ];
 
 function isNew(model: string): boolean {
@@ -535,13 +599,57 @@ async function seedNavItems() {
     console.log("✓ NavItem table not ready — skip nav seed");
     return;
   }
+  // Always wipe existing nav rows so the seed reflects the latest hard-coded
+  // structure (order changes, new dropdowns, renamed items, etc).
   const existing = await prisma.navItem.count();
   if (existing > 0) {
-    console.log(`✓ NavItem table already has ${existing} rows — skipping`);
-    return;
+    await prisma.navItem.deleteMany({});
+    console.log(`✓ Removed ${existing} existing NavItem rows before re-seed`);
   }
-  await prisma.navItem.createMany({ data: NAV_ITEMS });
-  console.log(`✓ Seeded ${NAV_ITEMS.length} nav items`);
+
+  // Pass 1: create all top-level items, remember their ids by label.
+  const topIds = new Map<string, string>();
+  let topCount = 0;
+  let childCount = 0;
+  for (const it of NAV_ITEMS) {
+    const created = await prisma.navItem.create({
+      data: {
+        label: it.label,
+        kind: it.kind,
+        target: it.target,
+        order: it.order,
+        requireAuth: it.requireAuth ?? false,
+        adminOnly: it.adminOnly ?? false,
+        openInNew: it.openInNew ?? false,
+        isPublished: true,
+      },
+    });
+    topIds.set(it.label, created.id);
+    topCount++;
+  }
+  // Pass 2: create children referencing their parent.
+  for (const it of NAV_ITEMS) {
+    if (!it.children) continue;
+    const parentId = topIds.get(it.label);
+    if (!parentId) continue;
+    for (const c of it.children) {
+      await prisma.navItem.create({
+        data: {
+          label: c.label,
+          kind: c.kind,
+          target: c.target,
+          parentId,
+          order: c.order,
+          requireAuth: c.requireAuth ?? false,
+          adminOnly: c.adminOnly ?? false,
+          openInNew: c.openInNew ?? false,
+          isPublished: true,
+        },
+      });
+      childCount++;
+    }
+  }
+  console.log(`✓ Seeded ${topCount} top-level + ${childCount} child nav items`);
 }
 
 async function main() {

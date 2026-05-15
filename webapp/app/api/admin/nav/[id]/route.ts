@@ -29,6 +29,24 @@ export async function PATCH(req: NextRequest, ctx: RouteContext) {
       patch.kind = body.kind;
     }
     if (typeof body.target === "string") patch.target = body.target.slice(0, 500);
+    if (body.parentId !== undefined) {
+      const next =
+        typeof body.parentId === "string" && body.parentId ? body.parentId : null;
+      if (next === id) {
+        return NextResponse.json({ error: "parent_self_reference" }, { status: 400 });
+      }
+      if (next) {
+        const parent = await prisma.navItem.findUnique({ where: { id: next } });
+        if (!parent) {
+          return NextResponse.json({ error: "parent_not_found" }, { status: 400 });
+        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((parent as any).parentId) {
+          return NextResponse.json({ error: "parent_not_top_level" }, { status: 400 });
+        }
+      }
+      patch.parentId = next;
+    }
     if (typeof body.order === "number") patch.order = body.order;
     if (typeof body.requireAuth === "boolean") patch.requireAuth = body.requireAuth;
     if (typeof body.adminOnly === "boolean") patch.adminOnly = body.adminOnly;

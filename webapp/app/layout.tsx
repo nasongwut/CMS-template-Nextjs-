@@ -8,6 +8,7 @@ import { getTheme, themeStyleTag } from "@/lib/theme";
 import LogoutButton from "./_components/logout-button";
 import PageTracker from "./_components/page-tracker";
 import MobileNav from "./_components/mobile-nav";
+import DesktopNav from "./_components/desktop-nav";
 import { getNavLinks } from "@/lib/nav";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -55,15 +56,37 @@ export default async function RootLayout({
   });
 
   // The "Admin" link is always appended for ADMIN users, regardless of nav config.
-  const navLinks: { href: string; label: string; accent?: boolean; external?: boolean; openInNew?: boolean }[] = [
+  const navLinks: {
+    id: string;
+    href: string;
+    label: string;
+    accent?: boolean;
+    external?: boolean;
+    openInNew?: boolean;
+    children?: {
+      id: string;
+      href: string;
+      label: string;
+      external?: boolean;
+      openInNew?: boolean;
+    }[];
+  }[] = [
     ...dbLinks.map((l) => ({
+      id: l.id,
       href: l.href,
       label: l.label,
       external: l.external,
       openInNew: l.openInNew,
+      children: l.children.map((c) => ({
+        id: c.id,
+        href: c.href,
+        label: c.label,
+        external: c.external,
+        openInNew: c.openInNew,
+      })),
     })),
     ...(user?.role === "ADMIN"
-      ? [{ href: "/admin", label: "Admin", accent: true }]
+      ? [{ id: "_admin", href: "/admin", label: "Admin", accent: true, children: [] }]
       : []),
   ];
 
@@ -76,7 +99,7 @@ export default async function RootLayout({
         {/* Inject theme as CSS variables — read by components via var(--site-*) */}
         <style dangerouslySetInnerHTML={{ __html: themeStyleTag(theme) }} />
       </head>
-      <body className="min-h-full flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+      <body className="min-h-full flex flex-col" data-style={theme.siteStyle}>
         <PageTracker />
         <header className="sticky top-0 z-40 border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-zinc-900/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 supports-[backdrop-filter]:dark:bg-zinc-900/60">
           <nav className="max-w-6xl mx-auto px-4 sm:px-6 py-3 flex items-center gap-4 sm:gap-6 text-sm">
@@ -92,26 +115,8 @@ export default async function RootLayout({
               </span>
             </Link>
 
-            {/* desktop links */}
-            <div className="hidden md:flex items-center gap-4 flex-1">
-              {navLinks.map((l, i) => (
-                <Link
-                  key={`${l.href}-${i}`}
-                  href={l.href}
-                  target={l.openInNew || l.external ? "_blank" : undefined}
-                  rel={l.external ? "noopener noreferrer" : undefined}
-                  className={`hover:underline ${
-                    l.accent
-                      ? "text-amber-600 dark:text-amber-400 font-medium"
-                      : l.href === "/docs"
-                        ? "text-zinc-500 dark:text-zinc-400"
-                        : ""
-                  }`}
-                >
-                  {l.label}
-                </Link>
-              ))}
-            </div>
+            {/* desktop links — supports dropdowns via DesktopNav */}
+            <DesktopNav links={navLinks} />
 
             <div className="hidden md:flex items-center gap-3 ml-auto">
               {user ? (

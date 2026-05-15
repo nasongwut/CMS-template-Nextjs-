@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { NAV_KINDS, resolveHref, type NavKind } from "@/lib/nav";
 
@@ -8,6 +8,7 @@ interface NavItemRow {
   label: string;
   kind: string;
   target: string;
+  parentId: string | null;
   order: number;
   requireAuth: boolean;
   adminOnly: boolean;
@@ -35,6 +36,13 @@ export default function NavClient({
   const [items, setItems] = useState(initial);
   const [editing, setEditing] = useState<string | "new" | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Build a render tree: top-level rows first, with their children attached.
+  const tree = useMemo(() => buildTree(items), [items]);
+  const parentChoices = useMemo(
+    () => items.filter((i) => !i.parentId), // only top-level can be a parent (depth limit 1)
+    [items],
+  );
 
   async function reload() {
     const r = await fetch("/api/admin/nav");
@@ -64,7 +72,7 @@ export default function NavClient({
   }
 
   async function onDelete(id: string) {
-    if (!confirm("ลบ nav item นี้?")) return;
+    if (!confirm("ลบ nav item นี้? (children ที่อยู่ใต้จะถูกลบไปด้วย)")) return;
     const r = await fetch(`/api/admin/nav/${id}`, { method: "DELETE" });
     if (r.ok) {
       await reload();
@@ -73,11 +81,17 @@ export default function NavClient({
   }
 
   async function move(id: string, dir: -1 | 1) {
-    const i = items.findIndex((x) => x.id === id);
+    const item = items.find((x) => x.id === id);
+    if (!item) return;
+    // Re-order within siblings only.
+    const siblings = items
+      .filter((x) => x.parentId === item.parentId)
+      .sort((a, b) => a.order - b.order);
+    const i = siblings.findIndex((x) => x.id === id);
     const j = i + dir;
-    if (i < 0 || j < 0 || j >= items.length) return;
-    const a = items[i];
-    const b = items[j];
+    if (i < 0 || j < 0 || j >= siblings.length) return;
+    const a = siblings[i];
+    const b = siblings[j];
     await Promise.all([
       fetch(`/api/admin/nav/${a.id}`, {
         method: "PATCH",
@@ -125,10 +139,12 @@ export default function NavClient({
           onSubmit={onSave}
           categories={categories}
           articles={articles}
+          parentChoices={parentChoices}
           initial={{
             label: "",
             kind: "page",
             target: "",
+            parentId: "",
             order: items.length,
             requireAuth: false,
             adminOnly: false,
@@ -139,91 +155,247 @@ export default function NavClient({
       )}
 
       <ul className="space-y-2">
-        {items.length === 0 && editing !== "new" && (
+        {tree.length === 0 && editing !== "new" && (
           <li className="rounded-lg border border-dashed border-zinc-300 dark:border-zinc-700 p-6 text-center text-zinc-500 text-sm">
             ยังไม่มี nav item — เมื่อเพิ่มอันแรกแล้ว defaults จะหายไป
           </li>
         )}
-        {items.map((it, i) => {
-          const resolved = resolveHref(it.kind as NavKind, it.target);
-          return (
-            <li key={it.id}>
-              {editing === it.id ? (
+        {tree.map((node, idx) => (
+          <NavTreeRow
+            key={node.id}
+            node={node}
+            siblingCount={tree.length}
+            siblingIndex={idx}
+            editing={editing}
+            setEditing={setEditing}
+            onSave={onSave}
+            onDelete={onDelete}
+            move={move}
+            categories={categories}
+            articles={articles}
+            parentChoices={parentChoices}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+interface TreeNode extends NavItemRow {
+  children: NavItemRow[];
+}
+
+function buildTree(items: NavItemRow[]): TreeNode[] {
+  const byParent = new Map<string | null, NavItemRow[]>();
+  for (const it of items) {
+    const key = it.parentId ?? null;
+    const arr = byParent.get(key) ?? [];
+    arr.push(it);
+    byParent.set(key, arr);
+  }
+  for (const arr of byParent.values()) {
+    arr.sort((a, b) => a.order - b.order);
+  }
+  const top = byParent.get(null) ?? [];
+  return top.map((t) => ({
+    ...t,
+    children: byParent.get(t.id) ?? [],
+  }));
+}
+
+function NavTreeRow({
+  node,
+  siblingCount,
+  siblingIndex,
+  editing,
+  setEditing,
+  onSave,
+  onDelete,
+  move,
+  categories,
+  articles,
+  parentChoices,
+}: {
+  node: TreeNode;
+  siblingCount: number;
+  siblingIndex: number;
+  editing: string | "new" | null;
+  setEditing: (v: string | "new" | null) => void;
+  onSave: (v: Partial<NavItemRow> & { label: string }) => void;
+  onDelete: (id: string) => void;
+  move: (id: string, dir: -1 | 1) => void;
+  categories: Ref[];
+  articles: Ref[];
+  parentChoices: NavItemRow[];
+}) {
+  const isEditing = editing === node.id;
+  return (
+    <li>
+      {isEditing ? (
+        <NavForm
+          onCancel={() => setEditing(null)}
+          onSubmit={(v) => onSave(v)}
+          categories={categories}
+          articles={articles}
+          parentChoices={parentChoices.filter((p) => p.id !== node.id)}
+          initial={{
+            label: node.label,
+            kind: node.kind,
+            target: node.target,
+            parentId: node.parentId ?? "",
+            order: node.order,
+            requireAuth: node.requireAuth,
+            adminOnly: node.adminOnly,
+            openInNew: node.openInNew,
+            isPublished: node.isPublished,
+          }}
+        />
+      ) : (
+        <Row
+          item={node}
+          isParent={node.children.length > 0}
+          move={move}
+          siblingCount={siblingCount}
+          siblingIndex={siblingIndex}
+          onEdit={() => setEditing(node.id)}
+          onDelete={() => onDelete(node.id)}
+        />
+      )}
+
+      {node.children.length > 0 && (
+        <ul className="ml-6 mt-2 space-y-2 border-l-2 border-zinc-200 dark:border-zinc-800 pl-3">
+          {node.children.map((c, ci) => (
+            <li key={c.id}>
+              {editing === c.id ? (
                 <NavForm
                   onCancel={() => setEditing(null)}
-                  onSubmit={onSave}
+                  onSubmit={(v) => onSave(v)}
                   categories={categories}
                   articles={articles}
+                  parentChoices={parentChoices}
                   initial={{
-                    label: it.label,
-                    kind: it.kind,
-                    target: it.target,
-                    order: it.order,
-                    requireAuth: it.requireAuth,
-                    adminOnly: it.adminOnly,
-                    openInNew: it.openInNew,
-                    isPublished: it.isPublished,
+                    label: c.label,
+                    kind: c.kind,
+                    target: c.target,
+                    parentId: c.parentId ?? "",
+                    order: c.order,
+                    requireAuth: c.requireAuth,
+                    adminOnly: c.adminOnly,
+                    openInNew: c.openInNew,
+                    isPublished: c.isPublished,
                   }}
                 />
               ) : (
-                <div className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/40 p-4 flex flex-col sm:flex-row sm:items-center gap-3">
-                  <span className="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 w-fit shrink-0">
-                    {it.kind}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <h3 className="font-medium truncate">{it.label}</h3>
-                      {!it.isPublished && (
-                        <span className="text-[10px] uppercase tracking-wider bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 px-1.5 py-0.5 rounded">
-                          hidden
-                        </span>
-                      )}
-                      {it.adminOnly && (
-                        <span className="text-[10px] uppercase tracking-wider bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
-                          admin
-                        </span>
-                      )}
-                      {it.requireAuth && (
-                        <span className="text-[10px] uppercase tracking-wider bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
-                          auth
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-xs text-zinc-500 mt-0.5 truncate font-mono">
-                      → {resolved.href}
-                      {resolved.external && " (external)"}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-1 text-sm shrink-0">
-                    <IconBtn onClick={() => move(it.id, -1)} disabled={i === 0} label="Up">
-                      ↑
-                    </IconBtn>
-                    <IconBtn
-                      onClick={() => move(it.id, 1)}
-                      disabled={i === items.length - 1}
-                      label="Down"
-                    >
-                      ↓
-                    </IconBtn>
-                    <button
-                      onClick={() => setEditing(it.id)}
-                      className="px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => onDelete(it.id)}
-                      className="px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
-                    >
-                      Delete
-                    </button>
-                  </div>
-                </div>
+                <Row
+                  item={c}
+                  isChild
+                  move={move}
+                  siblingCount={node.children.length}
+                  siblingIndex={ci}
+                  onEdit={() => setEditing(c.id)}
+                  onDelete={() => onDelete(c.id)}
+                />
               )}
             </li>
-          );
-        })}
-      </ul>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+}
+
+function Row({
+  item,
+  move,
+  siblingCount,
+  siblingIndex,
+  onEdit,
+  onDelete,
+  isParent,
+  isChild,
+}: {
+  item: NavItemRow;
+  move: (id: string, dir: -1 | 1) => void;
+  siblingCount: number;
+  siblingIndex: number;
+  onEdit: () => void;
+  onDelete: () => void;
+  isParent?: boolean;
+  isChild?: boolean;
+}) {
+  const resolved = resolveHref(item.kind as NavKind, item.target);
+  return (
+    <div
+      className={`rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white/70 dark:bg-zinc-900/40 p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-3 ${
+        isChild ? "" : ""
+      }`}
+    >
+      <span className="text-[10px] uppercase tracking-wider font-mono px-1.5 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 w-fit shrink-0">
+        {item.kind}
+      </span>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <h3 className="font-medium truncate">{item.label}</h3>
+          {isParent && (
+            <span
+              className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded text-white font-mono"
+              style={{
+                background:
+                  "linear-gradient(135deg, var(--site-primary), var(--site-accent))",
+              }}
+            >
+              dropdown
+            </span>
+          )}
+          {!item.isPublished && (
+            <span className="text-[10px] uppercase tracking-wider bg-zinc-200 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 px-1.5 py-0.5 rounded">
+              hidden
+            </span>
+          )}
+          {item.adminOnly && (
+            <span className="text-[10px] uppercase tracking-wider bg-amber-100 dark:bg-amber-950/30 text-amber-700 dark:text-amber-300 px-1.5 py-0.5 rounded">
+              admin
+            </span>
+          )}
+          {item.requireAuth && (
+            <span className="text-[10px] uppercase tracking-wider bg-blue-100 dark:bg-blue-950/30 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded">
+              auth
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-zinc-500 mt-0.5 truncate font-mono">
+          → {resolved.href || "(parent-only)"}
+          {resolved.external && " (external)"}
+        </p>
+      </div>
+      <div className="flex items-center gap-1 text-sm shrink-0">
+        <IconBtn
+          onClick={() => move(item.id, -1)}
+          disabled={siblingIndex === 0}
+          label="Up"
+        >
+          ↑
+        </IconBtn>
+        <IconBtn
+          onClick={() => move(item.id, 1)}
+          disabled={siblingIndex === siblingCount - 1}
+          label="Down"
+        >
+          ↓
+        </IconBtn>
+        <button
+          onClick={onEdit}
+          className="px-2 py-1 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        >
+          Edit
+        </button>
+        <button
+          onClick={onDelete}
+          className="px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30"
+        >
+          Delete
+        </button>
+      </div>
     </div>
   );
 }
@@ -234,11 +406,13 @@ function NavForm({
   onCancel,
   categories,
   articles,
+  parentChoices,
 }: {
   initial: {
     label: string;
     kind: string;
     target: string;
+    parentId: string;
     order: number;
     requireAuth: boolean;
     adminOnly: boolean;
@@ -249,6 +423,7 @@ function NavForm({
   onCancel: () => void;
   categories: Ref[];
   articles: Ref[];
+  parentChoices: NavItemRow[];
 }) {
   const [v, setV] = useState(initial);
 
@@ -259,9 +434,8 @@ function NavForm({
           value={v.target}
           onChange={(e) => setV({ ...v, target: e.target.value })}
           className="mt-1.5 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
-          required
         >
-          <option value="">— select category —</option>
+          <option value="">— none (parent-only) —</option>
           {categories.map((c) => (
             <option key={c.id} value={c.slug}>
               {c.name} ({c.slug})
@@ -276,9 +450,8 @@ function NavForm({
           value={v.target}
           onChange={(e) => setV({ ...v, target: e.target.value })}
           className="mt-1.5 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
-          required
         >
-          <option value="">— select article —</option>
+          <option value="">— none (parent-only) —</option>
           {articles.map((a) => (
             <option key={a.id} value={a.slug}>
               {a.title} ({a.slug})
@@ -290,11 +463,12 @@ function NavForm({
     return (
       <input
         type="text"
-        required
         value={v.target}
         onChange={(e) => setV({ ...v, target: e.target.value })}
         placeholder={
-          v.kind === "external" ? "https://example.com" : "/about"
+          v.kind === "external"
+            ? "https://example.com (empty = parent-only)"
+            : "/about (empty = parent-only)"
         }
         className="mt-1.5 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm font-mono"
       />
@@ -338,11 +512,30 @@ function NavForm({
       </div>
 
       <label className="block">
+        <span className="text-sm font-medium">Parent</span>
+        <p className="text-xs text-zinc-500 mt-0.5">
+          เลือก parent ถ้าต้องการให้รายการนี้อยู่ใน dropdown ของรายการอื่น
+        </p>
+        <select
+          value={v.parentId}
+          onChange={(e) => setV({ ...v, parentId: e.target.value })}
+          className="mt-1.5 w-full rounded-md border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm"
+        >
+          <option value="">— None (top-level) —</option>
+          {parentChoices.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="block">
         <span className="text-sm font-medium">Target</span>
         <p className="text-xs text-zinc-500 mt-0.5">
-          {v.kind === "page" && "Internal path — e.g. /about"}
-          {v.kind === "category" && "Pick a category to link to"}
-          {v.kind === "article" && "Pick an article to link to"}
+          {v.kind === "page" && "Internal path — e.g. /about. ปล่อยว่างถ้าเป็น dropdown parent"}
+          {v.kind === "category" && "เลือก category ที่จะลิงก์ไป"}
+          {v.kind === "article" && "เลือก article ที่จะลิงก์ไป"}
           {v.kind === "external" && "Full URL — e.g. https://example.com"}
         </p>
         {targetField()}

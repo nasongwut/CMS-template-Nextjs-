@@ -1,6 +1,6 @@
 /**
  * NavBar item resolver — loads NavItem rows from the DB and converts them
- * into renderable {href, label} structures the layout can iterate over.
+ * into a renderable *tree* (top-level items with optional `children`).
  *
  * Falls back to a sensible default list when the migration hasn't been
  * applied yet, so the site is never linkless.
@@ -19,6 +19,7 @@ export interface NavItem {
   label: string;
   kind: NavKind;
   target: string;
+  parentId: string | null;
   order: number;
   requireAuth: boolean;
   adminOnly: boolean;
@@ -28,21 +29,44 @@ export interface NavItem {
 
 export interface ResolvedNavLink {
   id: string;
+  /** Empty string when this is a parent-only item (only opens its dropdown). */
   href: string;
   label: string;
   external: boolean;
   openInNew: boolean;
   requireAuth: boolean;
   adminOnly: boolean;
+  /** Direct children — second-level only. Empty if leaf. */
+  children: ResolvedNavLink[];
 }
 
+/** Built-in defaults used when the NavItem table is empty / not migrated. */
 const DEFAULT_LINKS: ResolvedNavLink[] = [
-  { id: "_about", href: "/about", label: "About", external: false, openInNew: false, requireAuth: false, adminOnly: false },
-  { id: "_articles", href: "/articles", label: "Articles", external: false, openInNew: false, requireAuth: false, adminOnly: false },
-  { id: "_careers", href: "/careers", label: "Careers", external: false, openInNew: false, requireAuth: false, adminOnly: false },
-  { id: "_files", href: "/files", label: "Files", external: false, openInNew: false, requireAuth: true, adminOnly: false },
-  { id: "_docs", href: "/docs", label: "Docs", external: false, openInNew: false, requireAuth: false, adminOnly: false },
+  link("_about", "About", "/about"),
+  link("_articles", "Articles", "/articles"),
+  link("_careers", "Careers", "/careers"),
+  link("_files", "Files", "/files", { requireAuth: true }),
+  link("_docs", "Docs", "/docs"),
 ];
+
+function link(
+  id: string,
+  label: string,
+  href: string,
+  extra: Partial<Omit<ResolvedNavLink, "id" | "label" | "href">> = {},
+): ResolvedNavLink {
+  return {
+    id,
+    label,
+    href,
+    external: false,
+    openInNew: false,
+    requireAuth: false,
+    adminOnly: false,
+    children: [],
+    ...extra,
+  };
+}
 
 function isNavReady(): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -50,6 +74,7 @@ function isNavReady(): boolean {
 }
 
 export function resolveHref(kind: NavKind, target: string): { href: string; external: boolean } {
+  if (!target) return { href: "", external: false };
   switch (kind) {
     case "external":
       return { href: target, external: true };
@@ -71,62 +96,92 @@ function stripSlashes(s: string): string {
 }
 
 /**
- * Returns the nav links that should appear in the top bar, filtered by the
- * caller's auth/role and ordered for rendering. Used by app/layout.tsx.
+ * Returns the nav tree that should appear in the top bar, filtered by the
+ * caller's auth/role. Children of an admin-only / requireAuth parent inherit
+ * the parent's restrictions implicitly because the entire branch is hidden.
  */
 export async function getNavLinks(opts: {
   isAuthed: boolean;
   isAdmin: boolean;
 }): Promise<ResolvedNavLink[]> {
-  let items: ResolvedNavLink[];
+  let rows: NavItem[] = [];
+  let usedDefaults = false;
+
   if (!isNavReady()) {
-    items = [...DEFAULT_LINKS];
+    usedDefaults = true;
   } else {
     try {
-      const rows = (await prisma.navItem.findMany({
+      rows = (await prisma.navItem.findMany({
         where: { isPublished: true },
         orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-      })) as NavItem[];
-
-      if (rows.length === 0) {
-        // Empty table on a fresh install — show defaults so the site isn't
-        // navless. Admins can override by adding rows.
-        items = [...DEFAULT_LINKS];
-      } else {
-        items = rows.map((r) => {
-          const { href, external } = resolveHref(r.kind, r.target);
-          return {
-            id: r.id,
-            label: r.label,
-            href,
-            external,
-            openInNew: r.openInNew,
-            requireAuth: r.requireAuth,
-            adminOnly: r.adminOnly,
-          };
-        });
-      }
+      })) as unknown as NavItem[];
+      if (rows.length === 0) usedDefaults = true;
     } catch (e) {
       console.warn("getNavLinks: falling back to defaults", e);
-      items = [...DEFAULT_LINKS];
+      usedDefaults = true;
     }
   }
 
-  // Filter by caller's state
-  return items.filter((i) => {
-    if (i.adminOnly && !opts.isAdmin) return false;
-    if (i.requireAuth && !opts.isAuthed) return false;
-    return true;
-  });
+  let items: ResolvedNavLink[];
+  if (usedDefaults) {
+    items = DEFAULT_LINKS.map((d) => ({ ...d, children: [] }));
+  } else {
+    // Two passes: gather all rows as ResolvedNavLink, then attach children.
+    const byId = new Map<string, ResolvedNavLink>();
+    for (const r of rows) {
+      const { href, external } = resolveHref(r.kind, r.target);
+      byId.set(r.id, {
+        id: r.id,
+        label: r.label,
+        href,
+        external,
+        openInNew: r.openInNew,
+        requireAuth: r.requireAuth,
+        adminOnly: r.adminOnly,
+        children: [],
+      });
+    }
+    items = [];
+    for (const r of rows) {
+      const link = byId.get(r.id)!;
+      if (r.parentId && byId.has(r.parentId)) {
+        byId.get(r.parentId)!.children.push(link);
+      } else {
+        items.push(link);
+      }
+    }
+  }
+
+  // Filter by caller's state — drop hidden branches entirely.
+  return items
+    .map((parent) => ({
+      ...parent,
+      children: parent.children.filter((c) => visible(c, opts)),
+    }))
+    .filter((parent) => {
+      if (!visible(parent, opts)) return false;
+      // If the parent has no own link AND no visible children → hide.
+      if (!parent.href && parent.children.length === 0) return false;
+      return true;
+    });
 }
 
-/** Used by admin pages to retrieve everything (drafts too). */
+function visible(
+  l: ResolvedNavLink,
+  opts: { isAuthed: boolean; isAdmin: boolean },
+): boolean {
+  if (l.adminOnly && !opts.isAdmin) return false;
+  if (l.requireAuth && !opts.isAuthed) return false;
+  return true;
+}
+
+/** Used by admin pages — full list including drafts + drafts of children. */
 export async function listAllNavItems(): Promise<NavItem[]> {
   if (!isNavReady()) return [];
   try {
     return (await prisma.navItem.findMany({
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-    })) as NavItem[];
+    })) as unknown as NavItem[];
   } catch {
     return [];
   }
