@@ -33,13 +33,27 @@ const fallback = (): SiteSettings => ({
 
 export async function getSettings(): Promise<SiteSettings> {
   try {
-    // Atomic — protects against parallel callers racing the seed insert.
     return await prisma.siteSettings.upsert({
       where: { id: SINGLETON_ID },
       update: {},
       create: { id: SINGLETON_ID, siteName: env.appName },
     });
   } catch (e) {
+    // Prisma's upsert isn't atomic at the DB level — two parallel callers
+    // (e.g. generateMetadata + page render in the same Next.js request)
+    // can both see "row missing" and race to INSERT. The losing call hits
+    // a unique-constraint error (P2002). Retry as a plain read in that case.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((e as any)?.code === "P2002") {
+      try {
+        const row = await prisma.siteSettings.findUnique({
+          where: { id: SINGLETON_ID },
+        });
+        if (row) return row;
+      } catch {
+        /* fall through */
+      }
+    }
     console.warn("getSettings: falling back to defaults", e);
     return fallback();
   }

@@ -249,15 +249,28 @@ const fallback = (): Theme => ({
 
 export async function getTheme(): Promise<Theme> {
   try {
-    // Atomic — protects against parallel callers racing the seed insert.
     const row = await prisma.themeSettings.upsert({
       where: { id: SINGLETON_ID },
       update: {},
       create: { id: SINGLETON_ID, ...themeDefaults },
     });
-    // Older rows may not have siteStyle (stale prisma client) — normalise.
     return normaliseTheme(row);
   } catch (e) {
+    // Prisma upsert can race when two parallel callers both see "row
+    // missing" and try to INSERT — the loser hits unique constraint P2002.
+    // Retry as a plain read in that case.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((e as any)?.code === "P2002") {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const row = await (prisma.themeSettings as any).findUnique({
+          where: { id: SINGLETON_ID },
+        });
+        if (row) return normaliseTheme(row);
+      } catch {
+        /* fall through to defaults */
+      }
+    }
     console.warn("getTheme: falling back to defaults", e);
     return fallback();
   }

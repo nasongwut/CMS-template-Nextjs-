@@ -75,8 +75,6 @@ export function isAboutReady(): boolean {
 export async function getAboutPage(): Promise<AboutPage> {
   if (!modelsAvailable().page) return defaultPage();
   try {
-    // Use upsert so concurrent calls (e.g. generateMetadata + page render)
-    // don't race and hit a unique-constraint violation.
     const row = await prisma.aboutPage.upsert({
       where: { id: SINGLETON_ID },
       update: {},
@@ -84,6 +82,20 @@ export async function getAboutPage(): Promise<AboutPage> {
     });
     return normaliseAboutPage(row);
   } catch (e) {
+    // Prisma's upsert isn't truly atomic — two parallel callers
+    // (generateMetadata + page render) can both attempt INSERT and one
+    // hits P2002. Retry as plain read in that case.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if ((e as any)?.code === "P2002") {
+      try {
+        const row = await prisma.aboutPage.findUnique({
+          where: { id: SINGLETON_ID },
+        });
+        if (row) return normaliseAboutPage(row);
+      } catch {
+        /* fall through */
+      }
+    }
     console.warn("getAboutPage: falling back to defaults", e);
     return defaultPage();
   }

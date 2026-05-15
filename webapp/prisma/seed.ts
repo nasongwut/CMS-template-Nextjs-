@@ -652,11 +652,40 @@ async function seedNavItems() {
   console.log(`✓ Seeded ${topCount} top-level + ${childCount} child nav items`);
 }
 
+/* ─── Platform / super-admin bootstrap ─── */
+
+async function seedPlatformAdmin() {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (!(prisma as any)?.platformAdmin?.findUnique) {
+    console.log("✓ PlatformAdmin table not ready — skip platform seed");
+    return;
+  }
+  const email = (process.env.PLATFORM_ADMIN_EMAIL ?? "platform@example.com").toLowerCase();
+  const password = process.env.PLATFORM_ADMIN_PASSWORD ?? "Platform@1234";
+  const name = process.env.PLATFORM_ADMIN_NAME ?? "Platform Operator";
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const existing = await (prisma as any).platformAdmin.findUnique({ where: { email } });
+  if (existing) {
+    console.log(`✓ PlatformAdmin already exists: ${email}`);
+    return;
+  }
+  const passwordHash = await bcrypt.hash(password, 10);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  await (prisma as any).platformAdmin.create({
+    data: { email, name, passwordHash, isActive: true },
+  });
+  console.log(`✓ Created platform admin: ${email}`);
+  console.log(`  password: ${password}`);
+  console.log("  Sign in at /super-admin and change the password immediately.");
+}
+
 async function main() {
   await seedAdmin();
   await seedAbout();
   await seedCategoriesAndArticles();
   await seedNavItems();
+  await seedPlatformAdmin();
 }
 
 main()

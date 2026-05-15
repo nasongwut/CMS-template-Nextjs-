@@ -3,6 +3,8 @@ import { notFound } from "next/navigation";
 import { getArticleBySlug } from "@/lib/articles";
 import ArticleLayoutDispatcher from "../article-layouts";
 
+export const dynamic = "force-dynamic";
+
 interface PageProps {
   params: Promise<{ slug: string }>;
 }

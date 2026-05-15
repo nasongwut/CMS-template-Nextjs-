@@ -8,6 +8,8 @@ import {
 import { getSettings } from "@/lib/settings";
 import AboutLayoutDispatcher from "./about-layouts";
 
+export const dynamic = "force-dynamic";
+
 export async function generateMetadata(): Promise<Metadata> {
   const [page, site] = await Promise.all([getAboutPage(), getSettings()]);
   return {

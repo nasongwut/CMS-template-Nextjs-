@@ -3,6 +3,8 @@
  * (mirrors lib/about.ts pattern).
  */
 import { prisma } from "./prisma";
+import { TEMPLATES, type SiteTemplate } from "./templates";
+import type { TemplatePosition } from "./templates/types";
 
 export function isCareersReady(): boolean {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -33,8 +35,76 @@ export const STATUS_LABELS: Record<ApplicationStatus, { label: string; tone: str
   ARCHIVED: { label: "Archived", tone: "bg-zinc-100 text-zinc-500 dark:bg-zinc-900 dark:text-zinc-500" },
 };
 
-/** Positions advertised on /careers — kept in code so admins can curate via PR. */
-export const OPEN_POSITIONS: { id: string; title: string; team: string; type: string; location: string; summary: string }[] = [
+/**
+ * Detect which built-in SiteTemplate the current tenant is using based on
+ * its Category slugs, and return its job positions. Used by /careers to
+ * show industry-appropriate openings on each tenant site.
+ *
+ * Returns the fallback DEFAULT_OPEN_POSITIONS (City Art studio) when no
+ * template matches — e.g. for a brand-new site that hasn't applied any
+ * template yet, or the platform main site.
+ */
+export async function getOpenPositionsForCurrentSite(): Promise<
+  TemplatePosition[]
+> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if (!(prisma as any)?.category?.findMany) return DEFAULT_OPEN_POSITIONS;
+  try {
+    const cats = await prisma.category.findMany({ select: { slug: true } });
+    const slugs = new Set(cats.map((c) => c.slug));
+    const matched = detectTemplateFromCategorySlugs(slugs);
+    if (matched) return matched.openPositions;
+  } catch {
+    /* fall through */
+  }
+  return DEFAULT_OPEN_POSITIONS;
+}
+
+/** Map of "signature" category slug → template id, used to fingerprint a tenant. */
+const TEMPLATE_SIGNATURES: Record<string, string> = {
+  // vehicles
+  cars: "vehicles",
+  motorcycles: "vehicles",
+  // pets
+  dogs: "pets",
+  cats: "pets",
+  "small-pets": "pets",
+  // furniture
+  living: "furniture",
+  bedroom: "furniture",
+  kitchen: "furniture",
+  // party
+  birthday: "party",
+  wedding: "party",
+  "decor-party": "party",
+  // engineering
+  structural: "engineering",
+  electrical: "engineering",
+  mechanical: "engineering",
+  software: "engineering",
+};
+
+function detectTemplateFromCategorySlugs(
+  slugs: Set<string>,
+): SiteTemplate | null {
+  // Count matches per template, pick the one with the most signature hits.
+  const counts = new Map<string, number>();
+  for (const slug of slugs) {
+    const id = TEMPLATE_SIGNATURES[slug];
+    if (!id) continue;
+    counts.set(id, (counts.get(id) ?? 0) + 1);
+  }
+  let best: { id: string; n: number } | null = null;
+  for (const [id, n] of counts.entries()) {
+    if (!best || n > best.n) best = { id, n };
+  }
+  if (!best || best.n === 0) return null;
+  return TEMPLATES.find((t) => t.id === best.id) ?? null;
+}
+
+/** Fallback positions (City Art studio) for sites with no recognised template.
+ *  Also exported as `OPEN_POSITIONS` for legacy imports. */
+export const DEFAULT_OPEN_POSITIONS: TemplatePosition[] = [
   {
     id: "art-director",
     title: "Art Director",
@@ -89,3 +159,6 @@ export const OPEN_POSITIONS: { id: string; title: string; team: string; type: st
     summary: "เปิดรับ นศ. ที่อยากเรียนรู้กระบวนการสร้างงานศิลปะตั้งแต่ต้นจนจบ",
   },
 ];
+
+/** Legacy alias — old code can `import { OPEN_POSITIONS } from "@/lib/careers"`. */
+export const OPEN_POSITIONS = DEFAULT_OPEN_POSITIONS;

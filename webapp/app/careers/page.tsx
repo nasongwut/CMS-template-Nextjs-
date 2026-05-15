@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
-import { OPEN_POSITIONS } from "@/lib/careers";
+import { getOpenPositionsForCurrentSite } from "@/lib/careers";
 import { getSettings } from "@/lib/settings";
 import CareersClient from "./careers-client";
+
+export const dynamic = "force-dynamic";
 
 export async function generateMetadata(): Promise<Metadata> {
   const site = await getSettings();
@@ -11,7 +13,8 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default function CareersPage() {
+export default async function CareersPage() {
+  const openPositions = await getOpenPositionsForCurrentSite();
   return (
     <div className="relative">
       {/* decorative gradient */}
@@ -49,7 +52,7 @@ export default function CareersPage() {
           ตำแหน่งที่เปิดรับ
         </h2>
         <div className="mt-8 grid sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-          {OPEN_POSITIONS.map((p) => (
+          {openPositions.map((p) => (
             <a
               key={p.id}
               href={`#apply?position=${encodeURIComponent(p.title)}`}
@@ -111,7 +114,7 @@ export default function CareersPage() {
         </div>
 
         <div className="mt-8">
-          <CareersClient positions={OPEN_POSITIONS} />
+          <CareersClient positions={openPositions} />
         </div>
       </section>
     </div>

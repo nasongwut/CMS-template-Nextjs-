@@ -72,6 +72,71 @@ model File {
   @@index([createdAt])
 }
 
+// ──────────────────────────────────────────────────────────────────────
+// CONTROL PLANE — Site / SiteDomain / PlatformAdmin
+// ──────────────────────────────────────────────────────────────────────
+// These three tables live in this same Postgres database (the "control
+// plane") and let a super-admin manage multiple downstream Sites. Each
+// Site row stores the DATABASE_URL of its own tenant database; the
+// /super-admin portal connects to those URLs on demand to run migrations
+// and clone content.
+// ──────────────────────────────────────────────────────────────────────
+
+/// One downstream website managed by the platform.
+model Site {
+  id             String       @id @default(cuid())
+  slug           String       @unique
+  name           String
+  /// Primary hostname (no protocol, no path). Used to show "Visit ↗".
+  primaryDomain  String?
+  /// PostgreSQL connection string for the tenant DB — encrypted-at-rest
+  /// is recommended in production. For dev, store as plain text.
+  databaseUrl    String       @default("")
+  /// Direct (non-pooled) DB URL used by `prisma migrate` against this
+  /// tenant — optional. If empty, falls back to databaseUrl.
+  directDbUrl    String       @default("")
+  isActive       Boolean      @default(true)
+  notes          String?
+  /// Optional source Site whose content was cloned on creation.
+  /// Tracked for audit / display only — no FK action on delete.
+  templateSiteId String?
+  domains        SiteDomain[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([slug])
+  @@index([isActive])
+}
+
+/// Hostnames mapped to a Site (for hostname-based routing). One Site can
+/// have multiple Domain rows — primary + aliases (e.g. .com + .co.th).
+model SiteDomain {
+  id        String   @id @default(cuid())
+  hostname  String   @unique
+  siteId    String
+  site      Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([hostname])
+  @@index([siteId])
+}
+
+/// Cross-site administrator — can access /super-admin to manage all
+/// Sites in the platform. Stored separately from per-tenant User rows
+/// (different cookie, different table). Bootstrap via the seed script.
+model PlatformAdmin {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([email])
+}
+
 /// Singleton row that holds the site's branding/SEO settings.
 /// Admins edit it at /admin/configuration; the layout reads it for <title> and <meta>.
 model SiteSettings {
